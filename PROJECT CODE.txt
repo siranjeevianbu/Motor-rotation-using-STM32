@@ -1,0 +1,98 @@
+/*
+ * STM32 Encoder-Controlled Stepper Motor Control
+ * 
+ * Uses a rotary encoder to set a target position,
+ * and the STM32 (Nucleo-G474RE) generates PUL/DIR signals
+ * for the HSS86 driver to control a NEMA 34 stepper motor.
+ * 
+ * Developed for Jedlik testing, ready for integration with
+ * steer-by-wire or general embedded mechatronics applications.
+ */
+
+// --- Encoder Pin Definitions ---
+int encoderPinA = PB10;   // Encoder channel A
+int encoderPinB = PB3;    // Encoder channel B
+
+int encoderPos = 0;       // Logical position based on encoder rotation
+int lastStateA = LOW;     // Previous state of encoder A for edge detection
+int currentStateA;        // Current state of encoder A
+int currentStateB;        // Current state of encoder B
+
+// --- Stepper Motor Pin Definitions ---
+#define PUL_PIN PB4       // Pulse pin for HSS86 driver
+#define DIR_PIN A1        // Direction pin for HSS86 driver
+#define ENA_PIN A2        // Enable pin for HSS86 driver
+
+// --- Motion Configuration ---
+const int stepsPerRevolution = 1600;  // Full revolution steps (1.8 deg stepper with microstepping)
+int targetPosition = 0;               // Target position in steps
+int currentMotorPosition = 0;         // Current motor step position
+int motorSpeed = 500;                 // Pulse width in microseconds (adjust for speed control)
+
+void setup() {
+  // Configure encoder pins as inputs
+  pinMode(encoderPinA, INPUT);
+  pinMode(encoderPinB, INPUT);
+
+  // Configure stepper control pins as outputs
+  pinMode(PUL_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+  pinMode(ENA_PIN, OUTPUT);
+
+  // Enable the driver (ENA LOW typically enables HSS86)
+  digitalWrite(ENA_PIN, LOW);
+
+  // Start serial monitoring for debugging
+  Serial.begin(9600);
+}
+
+void loop() {
+  // Read current encoder states
+  currentStateA = digitalRead(encoderPinA);
+  currentStateB = digitalRead(encoderPinB);
+
+  // Detect falling edge on encoder channel A
+  if ((lastStateA == HIGH) && (currentStateA == LOW)) {
+    // Determine direction based on encoder channel B
+    if (currentStateB == LOW) {
+      encoderPos--;  // Counter-clockwise
+    } else {
+      encoderPos++;  // Clockwise
+    }
+
+    // Limit encoder position to a safe range
+    encoderPos = constrain(encoderPos, -60, 60);
+
+    // Map encoder position to motor steps for target positioning
+    targetPosition = map(encoderPos, -60, 60, -stepsPerRevolution, stepsPerRevolution);
+
+    // Debug print current encoder and target step values
+    Serial.print("Encoder Position: ");
+    Serial.print(encoderPos);
+    Serial.print(" | Target Steps: ");
+    Serial.println(targetPosition);
+  }
+
+  // Update last state for edge detection
+  lastStateA = currentStateA;
+
+  // Move motor towards the target position:
+  if (currentMotorPosition < targetPosition) {
+    digitalWrite(DIR_PIN, HIGH);  // Set direction to CW
+    stepMotor();                  // Send a single step
+    currentMotorPosition++;       // Increment current step position
+  } 
+  else if (currentMotorPosition > targetPosition) {
+    digitalWrite(DIR_PIN, LOW);   // Set direction to CCW
+    stepMotor();                  // Send a single step
+    currentMotorPosition--;       // Decrement current step position
+  }
+}
+
+// Function to generate a single step pulse
+void stepMotor() {
+  digitalWrite(PUL_PIN, HIGH);
+  delayMicroseconds(motorSpeed);   // Pulse width high
+  digitalWrite(PUL_PIN, LOW);
+  delayMicroseconds(motorSpeed);   // Pulse width low
+}
